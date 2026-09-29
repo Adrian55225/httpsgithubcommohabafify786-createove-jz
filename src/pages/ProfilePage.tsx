@@ -31,6 +31,9 @@ const ProfilePage: React.FC = () => {
     age: 25,
   });
 
+  // Temporary string state for age input during editing
+  const [ageInput, setAgeInput] = useState<string>('');
+
   const [photos, setPhotos] = useState<string[]>([]);
   const [interests, setInterests] = useState<string[]>([]);
   const [newInterest, setNewInterest] = useState('');
@@ -38,14 +41,16 @@ const ProfilePage: React.FC = () => {
   useEffect(() => {
     if (user) {
       console.log('[Profile] Loading user data:', user);
+      const loadedAge = user.age || 25;
       setFormData({
         name: user.name || '',
         bio: user.bio || '',
         gender: user.gender || 'Male',
         interestedIn: user.interestedIn || 'Women',
         location: user.location || '',
-        age: user.age || 25,
+        age: loadedAge,
       });
+      setAgeInput(String(loadedAge));
       setPhotos(user.photos?.length > 0 ? user.photos : [
         'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=400&fit=crop&crop=faces',
       ]);
@@ -123,8 +128,17 @@ const ProfilePage: React.FC = () => {
     setSaveError(null);
     setSaveSuccess(false);
 
+    // Validate age from the string input
+    const parsedAge = parseInt(ageInput, 10);
+    if (!ageInput.trim() || isNaN(parsedAge) || parsedAge < 18 || parsedAge > 100) {
+      setSaveError('Please enter a valid age between 18 and 100.');
+      setIsSaving(false);
+      return;
+    }
+
     const updates = {
       ...formData,
+      age: parsedAge,
       photos,
       interests,
       avatar: photos[0] || user?.avatar,
@@ -154,6 +168,23 @@ const ProfilePage: React.FC = () => {
     setInterests(interests.filter((i) => i !== interest));
   };
 
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    if (user) {
+      setFormData({
+        name: user.name || '',
+        bio: user.bio || '',
+        gender: user.gender || 'Male',
+        interestedIn: user.interestedIn || 'Women',
+        location: user.location || '',
+        age: user.age || 25,
+      });
+      setAgeInput(String(user.age || 25));
+      setPhotos(user.photos?.length > 0 ? user.photos : ['https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=400&fit=crop&crop=faces']);
+      setInterests(user.interests || []);
+    }
+  };
+
   const stats = {
     likes: 245,
     matches: 48,
@@ -179,21 +210,7 @@ const ProfilePage: React.FC = () => {
           ) : (
             <div className="flex gap-2">
               <button
-                onClick={() => {
-                  setIsEditing(false);
-                  if (user) {
-                    setFormData({
-                      name: user.name || '',
-                      bio: user.bio || '',
-                      gender: user.gender || 'Male',
-                      interestedIn: user.interestedIn || 'Women',
-                      location: user.location || '',
-                      age: user.age || 25,
-                    });
-                    setPhotos(user.photos?.length > 0 ? user.photos : ['https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=400&fit=crop&crop=faces']);
-                    setInterests(user.interests || []);
-                  }
-                }}
+                onClick={handleCancelEdit}
                 className="p-2 bg-gray-200 rounded-full hover:bg-gray-300 transition-colors"
               >
                 <X className="w-5 h-5 text-gray-600" />
@@ -299,12 +316,13 @@ const ProfilePage: React.FC = () => {
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">{t('profile.age')}</label>
                   <input
-                    type="number"
-                    value={formData.age}
-                    onChange={(e) => setFormData({ ...formData, age: parseInt(e.target.value) || 18 })}
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={ageInput}
+                    onChange={(e) => setAgeInput(e.target.value.replace(/[^0-9]/g, ''))}
                     className="input-field"
-                    min={18}
-                    max={100}
+                    placeholder="Your age"
                   />
                 </div>
                 <div>

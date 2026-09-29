@@ -38,29 +38,29 @@ const Footer: React.FC = () => {
             </ul>
           </div>
           <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wider mb-4">Support</h3>
+            <h3 className="text-sm font-semibold uppercase tracking-wider mb-4">Help</h3>
             <ul className="space-y-2.5">
-              <li><a href="#" className="text-gray-400 text-sm hover:text-heartsync transition-colors">Help Center</a></li>
-              <li><a href="#" className="text-gray-400 text-sm hover:text-heartsync transition-colors">Safety Tips</a></li>
-              <li><a href="#" className="text-gray-400 text-sm hover:text-heartsync transition-colors">Community Guidelines</a></li>
-              <li><a href="#" className="text-gray-400 text-sm hover:text-heartsync transition-colors">Success Stories</a></li>
+              <li><Link to="/help-center" className="text-gray-400 text-sm hover:text-heartsync transition-colors">Help Center</Link></li>
+              <li><Link to="/safety-tips" className="text-gray-400 text-sm hover:text-heartsync transition-colors">Safety Tips</Link></li>
+              <li><Link to="/community-guidelines" className="text-gray-400 text-sm hover:text-heartsync transition-colors">Community Guidelines</Link></li>
+              <li><Link to="/success-stories" className="text-gray-400 text-sm hover:text-heartsync transition-colors">Success Stories</Link></li>
             </ul>
           </div>
           <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wider mb-4">Contact</h3>
+            <h3 className="text-sm font-semibold uppercase tracking-wider mb-4">Legal</h3>
             <ul className="space-y-2.5">
-              <li className="flex items-center gap-2 text-gray-400 text-sm"><Mail className="w-4 h-4 text-heartsync" /><span>support@heartsync.com</span></li>
-              <li className="flex items-center gap-2 text-gray-400 text-sm"><Phone className="w-4 h-4 text-heartsync" /><span>+1 (555) 123-4567</span></li>
-              <li className="flex items-center gap-2 text-gray-400 text-sm"><MapPin className="w-4 h-4 text-heartsync" /><span>San Francisco, CA</span></li>
+              <li><Link to="/privacy" className="text-gray-400 text-sm hover:text-heartsync transition-colors">Privacy</Link></li>
+              <li><Link to="/terms" className="text-gray-400 text-sm hover:text-heartsync transition-colors">Terms</Link></li>
+              <li><Link to="/cookies" className="text-gray-400 text-sm hover:text-heartsync transition-colors">Cookies</Link></li>
             </ul>
           </div>
         </div>
         <div className="border-t border-gray-800 mt-10 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
           <p className="text-gray-500 text-xs">&copy; 2025 HeartSync. All rights reserved.</p>
           <div className="flex gap-6 text-xs">
-            <a href="#" className="text-gray-500 hover:text-heartsync transition-colors">Privacy</a>
-            <a href="#" className="text-gray-500 hover:text-heartsync transition-colors">Terms</a>
-            <a href="#" className="text-gray-500 hover:text-heartsync transition-colors">Cookies</a>
+            <Link to="/privacy" className="text-gray-500 hover:text-heartsync transition-colors">Privacy</Link>
+            <Link to="/terms" className="text-gray-500 hover:text-heartsync transition-colors">Terms</Link>
+            <Link to="/cookies" className="text-gray-500 hover:text-heartsync transition-colors">Cookies</Link>
           </div>
         </div>
       </div>
