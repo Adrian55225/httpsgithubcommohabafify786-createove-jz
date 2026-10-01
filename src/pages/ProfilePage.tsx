@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, Edit2, Heart, MapPin, Briefcase, Save, X, Plus, Trash2, Check, Upload, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { Camera, Edit2, Heart, MapPin, Briefcase, Save, X, Plus, Trash2, Check, Upload, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -10,7 +10,7 @@ const ProfilePage: React.FC = () => {
   const { isActive, subscription, getRemainingDays } = useSubscription();
   const { t } = useLanguage();
   const subscribed = isActive();
-  
+
   const [isEditing, setIsEditing] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -18,10 +18,15 @@ const ProfilePage: React.FC = () => {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
-  
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
-  
+
+  // Track whether the edit form has been initialized for the current editing session.
+  // This prevents the useEffect from overwriting draft values whenever `user` changes
+  // (e.g. after an optimistic update triggered by updateProfile or refreshProfile).
+  const editInitializedRef = useRef(false);
+
   const [formData, setFormData] = useState({
     name: '',
     bio: '',
@@ -31,33 +36,66 @@ const ProfilePage: React.FC = () => {
     age: 25,
   });
 
-  // Temporary string state for age input during editing
+  // Temporary string state for age input — allows empty string while typing
   const [ageInput, setAgeInput] = useState<string>('');
 
   const [photos, setPhotos] = useState<string[]>([]);
   const [interests, setInterests] = useState<string[]>([]);
   const [newInterest, setNewInterest] = useState('');
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // CORE FIX — useEffect now has two distinct responsibilities:
+  //
+  // 1. On first render (editInitializedRef.current === false) OR when the edit
+  //    session is NOT active: sync all form state from the latest user object.
+  //    This covers the initial page load and any time the user closes editing.
+  //
+  // 2. While the edit session IS active (isEditing === true AND
+  //    editInitializedRef.current === true): do NOT touch formData, ageInput,
+  //    photos, or interests. Only the user object changed (e.g. optimistic auth
+  //    update). Overwriting draft values here was the root cause of Bug 2.
+  // ─────────────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (user) {
-      console.log('[Profile] Loading user data:', user);
-      const loadedAge = user.age || 25;
-      setFormData({
-        name: user.name || '',
-        bio: user.bio || '',
-        gender: user.gender || 'Male',
-        interestedIn: user.interestedIn || 'Women',
-        location: user.location || '',
-        age: loadedAge,
-      });
-      setAgeInput(String(loadedAge));
-      setPhotos(user.photos?.length > 0 ? user.photos : [
-        'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=400&fit=crop&crop=faces',
-      ]);
-      setInterests(user.interests?.length > 0 ? user.interests : []);
-    }
-  }, [user]);
+    if (!user) return;
 
+    // If we are currently in an active editing session that has already been
+    // initialized, skip the reset entirely — the user is mid-edit.
+    if (isEditing && editInitializedRef.current) {
+      return;
+    }
+
+    // Initialize (or re-initialize after edit ends) all form fields from user.
+    const loadedAge = user.age || 25;
+    setFormData({
+      name: user.name || '',
+      bio: user.bio || '',
+      gender: user.gender || 'Male',
+      interestedIn: user.interestedIn || 'Women',
+      location: user.location || '',
+      age: loadedAge,
+    });
+    setAgeInput(String(loadedAge));
+    setPhotos(
+      user.photos?.length > 0
+        ? [...user.photos]
+        : ['https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=400&fit=crop&crop=faces']
+    );
+    setInterests(user.interests?.length > 0 ? [...user.interests] : []);
+
+    // Mark as initialized so future user-object changes don't clobber the draft.
+    if (isEditing) {
+      editInitializedRef.current = true;
+    }
+  }, [user, isEditing]);
+
+  // When the user clicks "Edit", mark the session as newly initialized so the
+  // next useEffect run (with the current user) will populate the form once.
+  const handleStartEdit = () => {
+    editInitializedRef.current = false; // allow one-time init from current user
+    setIsEditing(true);
+  };
+
+  // ── Photo file selection ──────────────────────────────────────────────────
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -68,7 +106,6 @@ const ProfilePage: React.FC = () => {
       setUploadError('Please select a valid image file');
       return;
     }
-
     if (file.size > 10 * 1024 * 1024) {
       setUploadError('Image size should be less than 10MB');
       return;
@@ -91,9 +128,14 @@ const ProfilePage: React.FC = () => {
     event.target.value = '';
   };
 
+  // ── Confirm photo upload — only touches `photos`, never formData/ageInput ─
   const confirmPhotoUpload = () => {
-    if (previewImage && photos.length < 6) {
-      setPhotos([...photos, previewImage]);
+    if (previewImage) {
+      // Use functional updater to avoid stale closure
+      setPhotos((prev) => {
+        if (prev.length >= 6) return prev;
+        return [...prev, previewImage];
+      });
       setPreviewImage(null);
     }
   };
@@ -119,16 +161,20 @@ const ProfilePage: React.FC = () => {
     cameraInputRef.current?.click();
   };
 
-  const handleRemovePhoto = (index: number) => {
-    setPhotos(photos.filter((_, i) => i !== index));
+  // ── Photo removal — only touches `photos`, never formData/ageInput ────────
+  // BUG 1 FIX: use functional updater to guarantee we are working on the
+  // most-recent photos array (avoids stale-closure issues), and filter by
+  // index rather than by URL string to avoid accidentally removing duplicates.
+  const handleRemovePhoto = (indexToRemove: number) => {
+    setPhotos((prev) => prev.filter((_, i) => i !== indexToRemove));
   };
 
+  // ── Save ──────────────────────────────────────────────────────────────────
   const handleSave = async () => {
     setIsSaving(true);
     setSaveError(null);
     setSaveSuccess(false);
 
-    // Validate age from the string input
     const parsedAge = parseInt(ageInput, 10);
     if (!ageInput.trim() || isNaN(parsedAge) || parsedAge < 18 || parsedAge > 100) {
       setSaveError('Please enter a valid age between 18 and 100.');
@@ -139,8 +185,8 @@ const ProfilePage: React.FC = () => {
     const updates = {
       ...formData,
       age: parsedAge,
-      photos,
-      interests,
+      photos: [...photos],
+      interests: [...interests],
       avatar: photos[0] || user?.avatar,
     };
 
@@ -149,6 +195,8 @@ const ProfilePage: React.FC = () => {
     setIsSaving(false);
 
     if (result.success) {
+      // End the editing session — allow useEffect to re-sync from saved user.
+      editInitializedRef.current = false;
       setIsEditing(false);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
@@ -157,51 +205,59 @@ const ProfilePage: React.FC = () => {
     }
   };
 
-  const handleAddInterest = () => {
-    if (newInterest.trim() && !interests.includes(newInterest.trim())) {
-      setInterests([...interests, newInterest.trim()]);
-      setNewInterest('');
-    }
-  };
-
-  const handleRemoveInterest = (interest: string) => {
-    setInterests(interests.filter((i) => i !== interest));
-  };
-
+  // ── Cancel edit — restore from current user data ─────────────────────────
   const handleCancelEdit = () => {
+    editInitializedRef.current = false; // allow useEffect to re-sync
     setIsEditing(false);
     if (user) {
+      const restoredAge = user.age || 25;
       setFormData({
         name: user.name || '',
         bio: user.bio || '',
         gender: user.gender || 'Male',
         interestedIn: user.interestedIn || 'Women',
         location: user.location || '',
-        age: user.age || 25,
+        age: restoredAge,
       });
-      setAgeInput(String(user.age || 25));
-      setPhotos(user.photos?.length > 0 ? user.photos : ['https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=400&fit=crop&crop=faces']);
+      setAgeInput(String(restoredAge));
+      setPhotos(
+        user.photos?.length > 0
+          ? [...user.photos]
+          : ['https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=400&fit=crop&crop=faces']
+      );
       setInterests(user.interests || []);
+    }
+    setSaveError(null);
+    setUploadError(null);
+  };
+
+  // ── Interests ─────────────────────────────────────────────────────────────
+  const handleAddInterest = () => {
+    const trimmed = newInterest.trim();
+    if (trimmed && !interests.includes(trimmed)) {
+      setInterests((prev) => [...prev, trimmed]);
+      setNewInterest('');
     }
   };
 
-  const stats = {
-    likes: 245,
-    matches: 48,
-    views: 1250,
+  const handleRemoveInterest = (interest: string) => {
+    setInterests((prev) => prev.filter((i) => i !== interest));
   };
 
+  const stats = { likes: 245, matches: 48, views: 1250 };
   const genderOptions = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
   const interestedInOptions = ['Women', 'Men', 'Everyone'];
 
   return (
     <div className="min-h-[80vh] bg-surface-muted pb-24 md:pb-8">
       <div className="max-w-2xl mx-auto px-4 pt-6">
+
+        {/* ── Header ─────────────────────────────────────────────────────── */}
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-black">{t('profile.title')}</h1>
           {!isEditing ? (
             <button
-              onClick={() => setIsEditing(true)}
+              onClick={handleStartEdit}
               className="flex items-center gap-2 px-4 py-2 bg-black text-white font-medium rounded-full hover:bg-gray-800 transition-colors active:scale-95"
             >
               <Edit2 className="w-4 h-4" />
@@ -220,23 +276,18 @@ const ProfilePage: React.FC = () => {
                 disabled={isSaving}
                 className="flex items-center gap-2 px-4 py-2 bg-heartsync text-white font-medium rounded-full hover:bg-heartsync-dark transition-colors active:scale-95 disabled:opacity-50"
               >
-                {isSaving ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Save className="w-4 h-4" />
-                )}
+                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 <span>{isSaving ? t('common.loading') : t('buttons.save')}</span>
               </button>
             </div>
           )}
         </div>
 
+        {/* ── Toasts ─────────────────────────────────────────────────────── */}
         <AnimatePresence>
           {saveSuccess && (
             <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
+              initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
               className="mb-4 p-3 bg-green-50 border border-green-200 rounded-xl flex items-center gap-2"
             >
               <Check className="w-5 h-5 text-green-500" />
@@ -244,13 +295,10 @@ const ProfilePage: React.FC = () => {
             </motion.div>
           )}
         </AnimatePresence>
-
         <AnimatePresence>
           {saveError && (
             <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
+              initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
               className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2"
             >
               <X className="w-5 h-5 text-heartsync" />
@@ -261,13 +309,10 @@ const ProfilePage: React.FC = () => {
             </motion.div>
           )}
         </AnimatePresence>
-
         <AnimatePresence>
           {uploadError && (
             <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
+              initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
               className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2"
             >
               <X className="w-5 h-5 text-heartsync" />
@@ -279,6 +324,7 @@ const ProfilePage: React.FC = () => {
           )}
         </AnimatePresence>
 
+        {/* ── Profile card ───────────────────────────────────────────────── */}
         <div className="card overflow-hidden mb-6">
           <div className="relative h-32 bg-gradient-to-r from-heartsync to-heartsync-dark">
             <div className="absolute -bottom-12 left-6">
@@ -289,7 +335,7 @@ const ProfilePage: React.FC = () => {
                   className="w-24 h-24 rounded-full object-cover ring-4 ring-white shadow-lg"
                 />
                 {isEditing && (
-                  <button 
+                  <button
                     onClick={handlePhotoUpload}
                     className="absolute bottom-0 right-0 p-2 bg-heartsync rounded-full text-white shadow-md hover:bg-heartsync-dark transition-colors"
                   >
@@ -308,7 +354,7 @@ const ProfilePage: React.FC = () => {
                   <input
                     type="text"
                     value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
                     className="input-field"
                     placeholder="Your name"
                   />
@@ -330,7 +376,7 @@ const ProfilePage: React.FC = () => {
                   <input
                     type="text"
                     value={formData.location}
-                    onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, location: e.target.value }))}
                     className="input-field"
                     placeholder="City, Country"
                   />
@@ -339,7 +385,7 @@ const ProfilePage: React.FC = () => {
             ) : (
               <div className="mb-4">
                 <h2 className="text-xl font-bold text-black">
-                  {formData.name}, {formData.age}
+                  {formData.name}{formData.age ? `, ${formData.age}` : ''}
                 </h2>
                 {formData.location && (
                   <div className="flex items-center gap-1.5 text-gray-500 text-sm mt-1">
@@ -371,24 +417,20 @@ const ProfilePage: React.FC = () => {
                   <label className="block text-xs font-medium text-gray-500 mb-1">{t('profile.gender')}</label>
                   <select
                     value={formData.gender}
-                    onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, gender: e.target.value }))}
                     className="input-field"
                   >
-                    {genderOptions.map((opt) => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
+                    {genderOptions.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">{t('profile.interestedIn')}</label>
                   <select
                     value={formData.interestedIn}
-                    onChange={(e) => setFormData({ ...formData, interestedIn: e.target.value })}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, interestedIn: e.target.value }))}
                     className="input-field"
                   >
-                    {interestedInOptions.map((opt) => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
+                    {interestedInOptions.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
                   </select>
                 </div>
               </div>
@@ -403,6 +445,7 @@ const ProfilePage: React.FC = () => {
           </div>
         </div>
 
+        {/* ── Bio ────────────────────────────────────────────────────────── */}
         <div className="card p-6 mb-6">
           <h3 className="font-bold text-black mb-4 flex items-center gap-2">
             <Edit2 className="w-4 h-4 text-heartsync" />
@@ -411,7 +454,7 @@ const ProfilePage: React.FC = () => {
           {isEditing ? (
             <textarea
               value={formData.bio}
-              onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
+              onChange={(e) => setFormData((prev) => ({ ...prev, bio: e.target.value }))}
               className="input-field min-h-[100px] resize-none"
               placeholder={t('profile.bioPlaceholder')}
             />
@@ -422,6 +465,7 @@ const ProfilePage: React.FC = () => {
           )}
         </div>
 
+        {/* ── Photos ─────────────────────────────────────────────────────── */}
         <div className="card p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-bold text-black flex items-center gap-2">
@@ -454,7 +498,7 @@ const ProfilePage: React.FC = () => {
 
           <div className="grid grid-cols-3 gap-3">
             {photos.map((photo, index) => (
-              <div key={index} className="relative aspect-square group">
+              <div key={`${photo}-${index}`} className="relative aspect-square group">
                 <img
                   src={photo}
                   alt={`Photo ${index + 1}`}
@@ -507,40 +551,31 @@ const ProfilePage: React.FC = () => {
           />
         </div>
 
+        {/* ── Photo preview modal ─────────────────────────────────────────── */}
         <AnimatePresence>
           {previewImage && (
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
               onClick={cancelPhotoUpload}
             >
               <motion.div
-                initial={{ scale: 0.9, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.9, opacity: 0 }}
+                initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
                 className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
               >
                 <h3 className="text-lg font-bold text-black mb-4 text-center">Preview Photo</h3>
-                
                 <div className="relative aspect-square rounded-2xl overflow-hidden mb-6 bg-gray-100">
-                  <img
-                    src={previewImage}
-                    alt="Preview"
-                    className="w-full h-full object-cover"
-                  />
+                  <img src={previewImage} alt="Preview" className="w-full h-full object-cover" />
                   {uploadingPhoto && (
                     <div className="absolute inset-0 bg-white/80 flex items-center justify-center">
                       <div className="flex flex-col items-center gap-2">
-                        <div className="w-8 h-8 border-3 border-gray-300 border-t-heartsync rounded-full animate-spin" />
+                        <div className="w-8 h-8 border-2 border-gray-300 border-t-heartsync rounded-full animate-spin" />
                         <span className="text-sm text-gray-500">{t('common.loading')}</span>
                       </div>
                     </div>
                   )}
                 </div>
-
                 <div className="flex gap-3">
                   <button
                     onClick={cancelPhotoUpload}
@@ -561,6 +596,7 @@ const ProfilePage: React.FC = () => {
           )}
         </AnimatePresence>
 
+        {/* ── Interests ──────────────────────────────────────────────────── */}
         <div className="card p-6 mb-6">
           <h3 className="font-bold text-black mb-4 flex items-center gap-2">
             <Heart className="w-4 h-4 text-heartsync" />
@@ -605,6 +641,7 @@ const ProfilePage: React.FC = () => {
           )}
         </div>
 
+        {/* ── Premium badge ───────────────────────────────────────────────── */}
         {subscribed && (
           <div className="card p-6 bg-green-50 border border-green-200">
             <div className="flex items-center gap-3">
@@ -614,12 +651,14 @@ const ProfilePage: React.FC = () => {
               <div>
                 <p className="font-bold text-green-800">{t('profile.premiumActive')}</p>
                 <p className="text-sm text-green-600">
-                  {subscription.plan?.charAt(0).toUpperCase()}{subscription.plan?.slice(1)} {t('profile.planDaysRemaining').replace('plan', '').replace('·', '')} {getRemainingDays()}
+                  {subscription.plan?.charAt(0).toUpperCase()}{subscription.plan?.slice(1)}{' '}
+                  · {getRemainingDays()} days remaining
                 </p>
               </div>
             </div>
           </div>
         )}
+
       </div>
     </div>
   );
